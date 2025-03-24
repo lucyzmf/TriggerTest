@@ -32,12 +32,23 @@ class MainActivity : AppCompatActivity() {
     private var usbDevice: UsbDevice? = null
     private val ACTION_USB_PERMISSION = "dev.lucy.myapplication.USB_PERMISSION"
     
-    // Handler for updating time
+    // Handlers for updating time and device detection
     private val handler = Handler(Looper.getMainLooper())
+    private val deviceDetectionHandler = Handler(Looper.getMainLooper())
     private val timeUpdateRunnable = object : Runnable {
         override fun run() {
             updateTimeDisplays()
             handler.postDelayed(this, 1000) // Update every second
+        }
+    }
+    
+    // Runnable for periodic device detection
+    private val deviceDetectionRunnable = object : Runnable {
+        override fun run() {
+            if (usbDevice == null) {
+                detectSerialPorts()
+            }
+            deviceDetectionHandler.postDelayed(this, 5000) // Retry every 5 seconds
         }
     }
     
@@ -90,6 +101,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
+    // List of supported USB vendor IDs
+    private val SUPPORTED_VENDORS = setOf(
+        0x0403, // FTDI
+        0x10C4, // Silicon Labs CP210x
+        0x067B, // Prolific
+        0x1A86, // QinHeng CH340/CH341
+        0x2341, // Arduino
+        0x16C0, // Teensyduino
+        0x03EB, // Atmel Lufa
+        0x1EAF, // Leaflabs
+        0x0D28, // ARM mbed
+        0x0483, // STMicroelectronics
+        0x2E8A  // Raspberry Pi Pico
+    )
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -132,6 +158,9 @@ class MainActivity : AppCompatActivity() {
         // Start USB device detection
         detectSerialPorts()
         
+        // Start periodic device detection
+        deviceDetectionHandler.post(deviceDetectionRunnable)
+        
         // Set up the send trigger button
         findViewById<Button>(R.id.send_trigger_button).setOnClickListener {
             // Send a trigger with an incremented number
@@ -143,9 +172,10 @@ class MainActivity : AppCompatActivity() {
     
     override fun onDestroy() {
         super.onDestroy()
-        // Unregister receiver and stop handler
+        // Unregister receiver and stop handlers
         unregisterReceiver(usbPermissionReceiver)
         handler.removeCallbacks(timeUpdateRunnable)
+        deviceDetectionHandler.removeCallbacks(deviceDetectionRunnable)
     }
     
     // Method for serial port detection
@@ -156,20 +186,41 @@ class MainActivity : AppCompatActivity() {
         val deviceList = usbManager.deviceList
         
         if (deviceList.isEmpty()) {
-            updateConnectionStatus("No USB devices found")
+            updateConnectionStatus("No serial device found")
             return
         }
         
-        // Look for the first available USB device
-        for ((_, device) in deviceList) {
-            usbDevice = device
-            updateConnectionStatus("Device found: ${device.deviceName}")
-            updateSerialPortName(device.deviceName)
-            
-            // Request permission for the device
-            requestUsbPermission(device)
-            break
+        // Filter for supported USB serial devices
+        val supportedDevices = deviceList.values.filter { device ->
+            SUPPORTED_VENDORS.contains(device.vendorId)
         }
+        
+        if (supportedDevices.isEmpty()) {
+            updateConnectionStatus("No supported serial device found")
+            return
+        }
+        
+        // Log all found devices for testing purposes
+        for (device in supportedDevices) {
+            android.util.Log.d("USB_DETECTION", 
+                "Found device: ${device.deviceName}, " +
+                "VendorID: ${device.vendorId}, " +
+                "ProductID: ${device.productId}")
+        }
+        
+        // Select the first available supported device
+        val selectedDevice = supportedDevices.first()
+        usbDevice = selectedDevice
+        
+        val deviceInfo = "Found device: ${selectedDevice.deviceName} " +
+                         "(VID: ${selectedDevice.vendorId.toString(16)}, " +
+                         "PID: ${selectedDevice.productId.toString(16)})"
+        
+        updateConnectionStatus(deviceInfo)
+        updateSerialPortName(selectedDevice.deviceName)
+        
+        // Request permission for the device
+        requestUsbPermission(selectedDevice)
     }
     
     // Method for connection management
