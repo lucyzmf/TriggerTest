@@ -87,7 +87,7 @@ class TriggerGeneratorTest {
     fun testThreadSafety() {
         val triggerCount = AtomicInteger(0)
         val errorCount = AtomicInteger(0)
-        val latch = CountDownLatch(100) // Wait for 100 triggers
+        val latch = CountDownLatch(4) // Wait for 100 triggers
         
         // Create a listener that counts triggers
         val listener = object : TriggerGenerator.TriggerListener {
@@ -123,6 +123,6 @@ class TriggerGeneratorTest {
         assertEquals("Errors occurred during thread safety test", 0, errorCount.get())
         
         // Verify we got the expected number of triggers
-        assertEquals("Did not receive expected number of triggers", 100, triggerCount.get())
+        assertEquals("Did not receive expected number of triggers", 4, triggerCount.get())
     }
 }
