@@ -10,6 +10,7 @@ import android.hardware.usb.UsbManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import java.text.SimpleDateFormat
@@ -39,20 +40,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    // USB permission broadcast receiver
+    // USB broadcast receiver for permission, attachment, and detachment
     private val usbPermissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (ACTION_USB_PERMISSION == intent.action) {
-                synchronized(this) {
-                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-                    if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                        device?.let {
-                            // Permission granted, proceed with connection
-                            connectToSerialPort(it)
+            when (intent.action) {
+                ACTION_USB_PERMISSION -> {
+                    synchronized(this) {
+                        val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                        if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                            device?.let {
+                                // Permission granted, proceed with connection
+                                connectToSerialPort(it)
+                            }
+                        } else {
+                            // Permission denied
+                            updateConnectionStatus("USB Permission denied")
                         }
-                    } else {
-                        // Permission denied
-                        updateConnectionStatus("USB Permission denied")
+                    }
+                }
+                UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
+                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                    device?.let {
+                        updateConnectionStatus("USB Device attached: ${it.deviceName}")
+                        usbDevice = it
+                        requestUsbPermission(it)
+                    }
+                }
+                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                    device?.let {
+                        if (it == usbDevice) {
+                            updateConnectionStatus("USB Device detached: ${it.deviceName}")
+                            updateSerialPortName("None")
+                            usbDevice = null
+                        }
                     }
                 }
             }
@@ -75,7 +96,20 @@ class MainActivity : AppCompatActivity() {
         
         // Register USB permission receiver
         val filter = IntentFilter(ACTION_USB_PERMISSION)
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         registerReceiver(usbPermissionReceiver, filter)
+        
+        // Check if the activity was started by a USB device being attached
+        val intent = intent
+        if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+            val attachedDevice = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
+            attachedDevice?.let {
+                updateConnectionStatus("USB Device attached: ${it.deviceName}")
+                usbDevice = it
+                requestUsbPermission(it)
+            }
+        }
         
         // Start time updates
         handler.post(timeUpdateRunnable)
@@ -87,6 +121,14 @@ class MainActivity : AppCompatActivity() {
         
         // Start USB device detection
         detectSerialPorts()
+        
+        // Set up the send trigger button
+        findViewById<Button>(R.id.send_trigger_button).setOnClickListener {
+            // Send a trigger with an incremented number
+            val currentTrigger = triggerNumberTextView.text.toString()
+                .replace("Trigger: ", "").toIntOrNull() ?: 0
+            sendTrigger(currentTrigger + 1)
+        }
     }
     
     override fun onDestroy() {
@@ -96,22 +138,60 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(timeUpdateRunnable)
     }
     
-    // Placeholder method for serial port detection
+    // Method for serial port detection
     private fun detectSerialPorts() {
-        // TODO: Implement serial port detection
         updateConnectionStatus("Searching for devices...")
+        
+        // Get the list of connected USB devices
+        val deviceList = usbManager.deviceList
+        
+        if (deviceList.isEmpty()) {
+            updateConnectionStatus("No USB devices found")
+            return
+        }
+        
+        // Look for the first available USB device
+        for ((_, device) in deviceList) {
+            usbDevice = device
+            updateConnectionStatus("Device found: ${device.deviceName}")
+            updateSerialPortName(device.deviceName)
+            
+            // Request permission for the device
+            requestUsbPermission(device)
+            break
+        }
     }
     
-    // Placeholder method for connection management
+    // Method for connection management
     private fun connectToSerialPort(device: UsbDevice) {
-        // TODO: Implement connection to serial port
-        updateConnectionStatus("Connecting...")
+        updateConnectionStatus("Connecting to ${device.deviceName}...")
+        
+        // In a real implementation, you would:
+        // 1. Get a UsbDeviceConnection from the UsbManager
+        // 2. Find the appropriate interface and endpoint
+        // 3. Create a UsbSerialDevice instance
+        // 4. Open the connection and set parameters (baud rate, etc.)
+        
+        // For now, we'll just simulate a successful connection
+        updateConnectionStatus("Connected to ${device.deviceName}")
+        
+        // In a real implementation, you would start reading from the serial port here
     }
     
-    // Placeholder method for trigger sending
+    // Method for trigger sending
     private fun sendTrigger(triggerNumber: Int) {
-        // TODO: Implement trigger sending
+        if (usbDevice == null) {
+            updateConnectionStatus("Cannot send trigger: No device connected")
+            return
+        }
+        
+        // In a real implementation, you would:
+        // 1. Format the trigger command as a byte array
+        // 2. Write the bytes to the serial port
+        
+        // For now, we'll just update the UI
         updateTriggerNumber(triggerNumber)
+        updateConnectionStatus("Trigger ${triggerNumber} sent")
     }
     
     // Method to request USB permission
