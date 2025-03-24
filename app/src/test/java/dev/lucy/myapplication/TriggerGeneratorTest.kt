@@ -1,0 +1,128 @@
+package dev.lucy.myapplication
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+
+class TriggerGeneratorTest {
+    
+    @Test
+    fun testTriggerSequenceWrapsAt256() {
+        // Create a mock listener
+        val mockListener = object : TriggerGenerator.TriggerListener {
+            val values = mutableListOf<Int>()
+            
+            override fun onTriggerGenerated(triggerValue: Int) {
+                values.add(triggerValue)
+            }
+            
+            override fun onTriggerError(error: String) {
+                // Not testing errors here
+            }
+        }
+        
+        // Create the generator and manually trigger 300 values
+        val generator = TriggerGenerator(mockListener)
+        
+        // Generate 300 triggers manually (without scheduling)
+        for (i in 1..300) {
+            generator.javaClass.getDeclaredMethod("generateTrigger").apply {
+                isAccessible = true
+                invoke(generator)
+            }
+        }
+        
+        // Check that values wrap correctly
+        // The first 256 values should be 1-256
+        for (i in 1..256) {
+            assertEquals(i, mockListener.values[i-1])
+        }
+        
+        // Values after 256 should wrap back to 1
+        assertEquals(1, mockListener.values[256])
+        assertEquals(2, mockListener.values[257])
+        assertEquals(3, mockListener.values[258])
+    }
+    
+    @Test
+    fun testTimingAccuracy() {
+        val latch = CountDownLatch(5) // Wait for 5 triggers
+        val timestamps = mutableListOf<Long>()
+        
+        // Create a listener that records timestamps
+        val listener = object : TriggerGenerator.TriggerListener {
+            override fun onTriggerGenerated(triggerValue: Int) {
+                timestamps.add(System.currentTimeMillis())
+                latch.countDown()
+            }
+            
+            override fun onTriggerError(error: String) {
+                // Not testing errors here
+            }
+        }
+        
+        // Create and start the generator
+        val generator = TriggerGenerator(listener)
+        val startTime = System.currentTimeMillis()
+        generator.start()
+        
+        // Wait for 5 triggers (should take about 5 seconds)
+        assertTrue("Timed out waiting for triggers", latch.await(6, TimeUnit.SECONDS))
+        
+        // Stop the generator
+        generator.shutdown()
+        
+        // Check timing accuracy (should be within ±50ms of each second)
+        for (i in 1 until timestamps.size) {
+            val interval = timestamps[i] - timestamps[i-1]
+            assertTrue("Interval $interval is outside acceptable range", 
+                       interval in 950..1050)
+        }
+    }
+    
+    @Test
+    fun testThreadSafety() {
+        val triggerCount = AtomicInteger(0)
+        val errorCount = AtomicInteger(0)
+        val latch = CountDownLatch(100) // Wait for 100 triggers
+        
+        // Create a listener that counts triggers
+        val listener = object : TriggerGenerator.TriggerListener {
+            override fun onTriggerGenerated(triggerValue: Int) {
+                triggerCount.incrementAndGet()
+                latch.countDown()
+            }
+            
+            override fun onTriggerError(error: String) {
+                errorCount.incrementAndGet()
+            }
+        }
+        
+        // Create and start the generator with a very fast rate for stress testing
+        val generator = TriggerGenerator(listener)
+        
+        // Use reflection to access and modify the private scheduler field
+        val schedulerField = generator.javaClass.getDeclaredField("scheduler")
+        schedulerField.isAccessible = true
+        
+        // Start generating triggers very rapidly (10ms intervals)
+        val schedulerMethod = generator.javaClass.getDeclaredMethod("start")
+        schedulerMethod.isAccessible = true
+        schedulerMethod.invoke(generator)
+        
+        // Wait for all triggers
+        assertTrue("Timed out waiting for triggers", latch.await(5, TimeUnit.SECONDS))
+        
+        // Stop the generator
+        generator.shutdown()
+        
+        // Verify no errors occurred
+        assertEquals("Errors occurred during thread safety test", 0, errorCount.get())
+        
+        // Verify we got the expected number of triggers
+        assertEquals("Did not receive expected number of triggers", 100, triggerCount.get())
+    }
+}

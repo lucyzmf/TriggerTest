@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
 import android.os.Bundle
 import android.os.Handler
@@ -14,11 +15,15 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.hoho.android.usbserial.driver.UsbSerialDriver
+import com.hoho.android.usbserial.driver.UsbSerialPort
+import com.hoho.android.usbserial.driver.UsbSerialProber
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
     
     // UI elements
     private lateinit var connectionStatusTextView: TextView
@@ -30,11 +35,19 @@ class MainActivity : AppCompatActivity() {
     // USB related variables
     private lateinit var usbManager: UsbManager
     private var usbDevice: UsbDevice? = null
+    private var usbConnection: UsbDeviceConnection? = null
+    private var usbSerialPort: UsbSerialPort? = null
     private val ACTION_USB_PERMISSION = "dev.lucy.myapplication.USB_PERMISSION"
     
     // Handlers for updating time and device detection
     private val handler = Handler(Looper.getMainLooper())
     private val deviceDetectionHandler = Handler(Looper.getMainLooper())
+    
+    // Trigger generator
+    private lateinit var triggerGenerator: TriggerGenerator
+    
+    // App start time for app time calculation
+    private val appStartTime = System.currentTimeMillis()
     private val timeUpdateRunnable = object : Runnable {
         override fun run() {
             updateTimeDisplays()
@@ -127,6 +140,9 @@ class MainActivity : AppCompatActivity() {
         wallTimeTextView = findViewById(R.id.wall_time)
         appTimeTextView = findViewById(R.id.app_time)
         
+        // Initialize trigger generator
+        triggerGenerator = TriggerGenerator(this)
+        
         // Initialize USB manager
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
         
@@ -163,10 +179,15 @@ class MainActivity : AppCompatActivity() {
         
         // Set up the send trigger button
         findViewById<Button>(R.id.send_trigger_button).setOnClickListener {
-            // Send a trigger with an incremented number
-            val currentTrigger = triggerNumberTextView.text.toString()
-                .replace("Trigger: ", "").toIntOrNull() ?: 0
-            sendTrigger(currentTrigger + 1)
+            if (triggerGenerator.getCurrentTriggerValue() == 0) {
+                // Start the trigger sequence
+                triggerGenerator.start()
+                findViewById<Button>(R.id.send_trigger_button).text = "Stop Triggers"
+            } else {
+                // Stop the trigger sequence
+                triggerGenerator.stop()
+                findViewById<Button>(R.id.send_trigger_button).text = "Start Triggers"
+            }
         }
     }
     
@@ -176,6 +197,12 @@ class MainActivity : AppCompatActivity() {
         unregisterReceiver(usbPermissionReceiver)
         handler.removeCallbacks(timeUpdateRunnable)
         deviceDetectionHandler.removeCallbacks(deviceDetectionRunnable)
+        
+        // Clean up trigger generator
+        triggerGenerator.shutdown()
+        
+        // Close USB connection
+        closeSerialPort()
     }
     
     // Method for serial port detection
@@ -227,32 +254,84 @@ class MainActivity : AppCompatActivity() {
     private fun connectToSerialPort(device: UsbDevice) {
         updateConnectionStatus("Connecting to ${device.deviceName}...")
         
-        // In a real implementation, you would:
-        // 1. Get a UsbDeviceConnection from the UsbManager
-        // 2. Find the appropriate interface and endpoint
-        // 3. Create a UsbSerialDevice instance
-        // 4. Open the connection and set parameters (baud rate, etc.)
+        try {
+            // Find all available drivers for the attached device
+            val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
+            if (availableDrivers.isEmpty()) {
+                updateConnectionStatus("No USB serial driver found for ${device.deviceName}")
+                return
+            }
+            
+            // Open a connection to the first available driver
+            val driver = availableDrivers[0]
+            val connection = usbManager.openDevice(device)
+            if (connection == null) {
+                updateConnectionStatus("Failed to open connection to ${device.deviceName}")
+                return
+            }
+            
+            // Get the first port (most devices have just one)
+            val port = driver.ports[0]
+            
+            // Open the port and configure it
+            try {
+                port.open(connection)
+                port.setParameters(9600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
+                
+                // Store the connection and port for later use
+                usbConnection = connection
+                usbSerialPort = port
+                
+                updateConnectionStatus("Connected to ${device.deviceName}")
+                updateSerialPortName("${driver.javaClass.simpleName} (${port.portNumber})")
+            } catch (e: IOException) {
+                updateConnectionStatus("Error opening serial port: ${e.message}")
+                try {
+                    port.close()
+                } catch (e2: IOException) {
+                    // Ignore
+                }
+            }
+        } catch (e: Exception) {
+            updateConnectionStatus("Error connecting to device: ${e.message}")
+        }
+    }
+    
+    // Close the serial port connection
+    private fun closeSerialPort() {
+        usbSerialPort?.let {
+            try {
+                it.close()
+            } catch (e: IOException) {
+                // Ignore
+            }
+            usbSerialPort = null
+        }
         
-        // For now, we'll just simulate a successful connection
-        updateConnectionStatus("Connected to ${device.deviceName}")
-        
-        // In a real implementation, you would start reading from the serial port here
+        usbConnection = null
     }
     
     // Method for trigger sending
     private fun sendTrigger(triggerNumber: Int) {
-        if (usbDevice == null) {
-            updateConnectionStatus("Cannot send trigger: No device connected")
+        if (usbSerialPort == null) {
+            updateConnectionStatus("Cannot send trigger: No serial port connected")
             return
         }
         
-        // In a real implementation, you would:
-        // 1. Format the trigger command as a byte array
-        // 2. Write the bytes to the serial port
-        
-        // For now, we'll just update the UI
-        updateTriggerNumber(triggerNumber)
-        updateConnectionStatus("Trigger ${triggerNumber} sent")
+        try {
+            // Convert trigger number to a byte
+            val triggerByte = byteArrayOf(triggerNumber.toByte())
+            
+            // Write the byte to the serial port
+            usbSerialPort?.write(triggerByte, 1000)
+            
+            // Update UI
+            updateTriggerNumber(triggerNumber)
+            updateConnectionStatus("Trigger ${triggerNumber} sent")
+        } catch (e: IOException) {
+            updateConnectionStatus("Error sending trigger: ${e.message}")
+            triggerGenerator.stop()
+        }
     }
     
     // Method to request USB permission
@@ -279,11 +358,27 @@ class MainActivity : AppCompatActivity() {
     
     private fun updateTimeDisplays() {
         // Update wall time
-        val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+        val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
         val currentTime = dateFormat.format(Date())
         wallTimeTextView.text = "Wall Time: $currentTime"
         
-        // Update app time (placeholder)
-        appTimeTextView.text = "App Time: $currentTime"
+        // Update app time (elapsed time since app start)
+        val elapsedMillis = System.currentTimeMillis() - appStartTime
+        val seconds = elapsedMillis / 1000
+        val millis = elapsedMillis % 1000
+        appTimeTextView.text = String.format("App Time: %d.%03d s", seconds, millis)
+    }
+    
+    // TriggerGenerator.TriggerListener implementation
+    override fun onTriggerGenerated(triggerValue: Int) {
+        runOnUiThread {
+            sendTrigger(triggerValue)
+        }
+    }
+    
+    override fun onTriggerError(error: String) {
+        runOnUiThread {
+            updateConnectionStatus(error)
+        }
     }
 }
