@@ -13,6 +13,7 @@ import android.os.Looper
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -46,7 +47,10 @@ class MainActivity : AppCompatActivity() {
             when (intent.action) {
                 ACTION_USB_PERMISSION -> {
                     synchronized(this) {
-                        val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                        val device: UsbDevice? = intent.getParcelableExtra(
+                            UsbManager.EXTRA_DEVICE,
+                            UsbDevice::class.java
+                        )
                         if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
                             device?.let {
                                 // Permission granted, proceed with connection
@@ -59,7 +63,10 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
-                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                    val device: UsbDevice? = intent.getParcelableExtra(
+                        UsbManager.EXTRA_DEVICE,
+                        UsbDevice::class.java
+                    )
                     device?.let {
                         updateConnectionStatus("USB Device attached: ${it.deviceName}")
                         usbDevice = it
@@ -67,7 +74,10 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> {
-                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                    val device: UsbDevice? = intent.getParcelableExtra(
+                        UsbManager.EXTRA_DEVICE,
+                        UsbDevice::class.java
+                    )
                     device?.let {
                         if (it == usbDevice) {
                             updateConnectionStatus("USB Device detached: ${it.deviceName}")
@@ -98,12 +108,12 @@ class MainActivity : AppCompatActivity() {
         val filter = IntentFilter(ACTION_USB_PERMISSION)
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
-        registerReceiver(usbPermissionReceiver, filter)
+        ContextCompat.registerReceiver(this, usbPermissionReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
         
         // Check if the activity was started by a USB device being attached
         val intent = intent
         if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
-            val attachedDevice = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
+            val attachedDevice = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
             attachedDevice?.let {
                 updateConnectionStatus("USB Device attached: ${it.deviceName}")
                 usbDevice = it
