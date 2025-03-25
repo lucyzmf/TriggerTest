@@ -11,6 +11,7 @@ import android.hardware.usb.UsbManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -46,12 +47,17 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
     // Trigger generator
     private lateinit var triggerGenerator: TriggerGenerator
     
-    // App start time for app time calculation
-    private val appStartTime = System.currentTimeMillis()
+    // Time tracking variables
+    private val appStartTime = SystemClock.elapsedRealtime()
+    private var lastTriggerTime = 0L
+    private var lastTriggerWallTime = 0L
+    private var lastTriggerAppTime = 0L
+    
+    // Time update runnable with faster refresh rate
     private val timeUpdateRunnable = object : Runnable {
         override fun run() {
             updateTimeDisplays()
-            handler.postDelayed(this, 1000) // Update every second
+            handler.postDelayed(this, 100) // Update every 100ms for smoother display
         }
     }
     
@@ -319,6 +325,11 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
         }
         
         try {
+            // Record timestamps before sending trigger
+            lastTriggerTime = System.currentTimeMillis()
+            lastTriggerWallTime = lastTriggerTime
+            lastTriggerAppTime = SystemClock.elapsedRealtime()
+            
             // Convert trigger number to a byte
             val triggerByte = byteArrayOf(triggerNumber.toByte())
             
@@ -327,11 +338,19 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             
             // Update UI
             updateTriggerNumber(triggerNumber)
-            updateConnectionStatus("Trigger ${triggerNumber} sent")
+            updateConnectionStatus("Trigger ${triggerNumber} sent at ${formatTimestamp(lastTriggerTime)}")
+            
+            // Force immediate time display update
+            updateTimeDisplays()
         } catch (e: IOException) {
             updateConnectionStatus("Error sending trigger: ${e.message}")
             triggerGenerator.stop()
         }
+    }
+    
+    // Helper method to format timestamps consistently
+    private fun formatTimestamp(timeMillis: Long): String {
+        return SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date(timeMillis))
     }
     
     // Method to request USB permission
@@ -357,16 +376,32 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
     }
     
     private fun updateTimeDisplays() {
-        // Update wall time
+        // Update wall time using System.currentTimeMillis()
+        val wallTimeMillis = System.currentTimeMillis()
         val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
-        val currentTime = dateFormat.format(Date())
-        wallTimeTextView.text = "Wall Time: $currentTime"
+        val formattedWallTime = dateFormat.format(Date(wallTimeMillis))
+        wallTimeTextView.text = "Wall Time: $formattedWallTime"
         
-        // Update app time (elapsed time since app start)
-        val elapsedMillis = System.currentTimeMillis() - appStartTime
-        val seconds = elapsedMillis / 1000
-        val millis = elapsedMillis % 1000
+        // Update app time using SystemClock.elapsedRealtime()
+        val appTimeMillis = SystemClock.elapsedRealtime() - appStartTime
+        val seconds = appTimeMillis / 1000
+        val millis = appTimeMillis % 1000
         appTimeTextView.text = String.format("App Time: %d.%03d s", seconds, millis)
+        
+        // Calculate and log drift if we have trigger timestamps
+        if (lastTriggerTime > 0) {
+            val currentWallTime = System.currentTimeMillis()
+            val currentAppTime = SystemClock.elapsedRealtime()
+            
+            val wallTimeDelta = currentWallTime - lastTriggerWallTime
+            val appTimeDelta = currentAppTime - lastTriggerAppTime
+            val drift = wallTimeDelta - appTimeDelta
+            
+            if (Math.abs(drift) > 10) { // Only log significant drift (>10ms)
+                android.util.Log.d("TIME_DRIFT", 
+                    "Drift detected: ${drift}ms (Wall: ${wallTimeDelta}ms, App: ${appTimeDelta}ms)")
+            }
+        }
     }
     
     // TriggerGenerator.TriggerListener implementation

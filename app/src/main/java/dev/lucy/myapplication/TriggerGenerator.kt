@@ -66,12 +66,18 @@ class TriggerGenerator(private val triggerListener: TriggerListener) {
      */
     private fun generateTrigger() {
         try {
+            // Record the exact time this trigger was generated
+            val triggerTime = System.currentTimeMillis()
+            
             // Get next value (1-256) and handle wrap-around
             val nextValue = (triggerCounter.incrementAndGet() % 256)
             val triggerValue = if (nextValue == 0) 256 else nextValue
             
             // Notify listener of the new trigger value
             triggerListener.onTriggerGenerated(triggerValue)
+            
+            // Log the trigger time for debugging
+            android.util.Log.d("TRIGGER_TIME", "Trigger $triggerValue generated at $triggerTime")
         } catch (e: Exception) {
             // Handle any errors
             triggerListener.onTriggerError("Error generating trigger: ${e.message}")
