@@ -63,27 +63,34 @@ class ConnectionErrorManager(private val context: Context) {
      * Set the connection state and error code
      */
     fun setState(state: ConnectionState, errorCode: ErrorCode = ErrorCode.NONE) {
+        // Prevent redundant state changes
+        if (currentState == state && currentError == errorCode) {
+            Log.w(TAG, "Ignoring redundant state update: state=$state, errorCode=$errorCode")
+            return
+        }
+
         val oldState = currentState
         currentState = state
         currentError = errorCode
-        
+
         // Log the state change
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date())
         val logMessage = "$timestamp: State changed from $oldState to $state with error: $errorCode"
         Log.d(TAG, logMessage)
-        
+
         // Log to file if it's an error
         if (state == ConnectionState.ERROR) {
             logErrorToFile(logMessage)
         }
-        
+
         // Notify listener
         stateChangeListener?.invoke(state, errorCode)
-        
-        // Handle retries if in error state
-        if (state == ConnectionState.ERROR) {
+
+        // Handle retries if in error state and retry count is within limit
+        if (state == ConnectionState.ERROR && retryCount.get() < maxRetries) {
+            Log.d(TAG, "State is ERROR, scheduling retry.")
             scheduleRetry()
-        } else {
+        } else if (state != ConnectionState.ERROR) {
             // Reset retry count when not in error state
             retryCount.set(0)
         }
@@ -115,27 +122,58 @@ class ConnectionErrorManager(private val context: Context) {
      */
     private fun scheduleRetry() {
         val currentRetryCount = retryCount.getAndIncrement()
-        
+
         if (currentRetryCount >= maxRetries) {
-            Log.w(TAG, "Maximum retry count reached ($maxRetries)")
+            Log.w(TAG, "Maximum retry count reached ($maxRetries), giving up.")
             return
         }
-        
-        // Calculate delay with exponential backoff (base delay: 1000ms)
+
+        // Exponential backoff (Base delay: 1000ms, max 30s)
         val delayMs = min(
             (1000 * 2.0.pow(currentRetryCount.toDouble())).toLong(),
-            30000 // Max 30 seconds
+            30000
         )
-        
-        Log.d(TAG, "Scheduling retry #${currentRetryCount + 1} in ${delayMs}ms")
-        
-        // Schedule retry
+
+        Log.d(TAG, "Retry attempt #${currentRetryCount + 1} scheduled in ${delayMs}ms")
+
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (currentState == ConnectionState.CONNECTED) {
+                Log.d(TAG, "Connection restored before retry #${currentRetryCount + 1}, stopping retries.")
+                return@postDelayed
+            }
             Log.d(TAG, "Executing retry #${currentRetryCount + 1}")
-            stateChangeListener?.invoke(ConnectionState.DISCONNECTED, ErrorCode.NONE)
+
+            // Instead of triggering a state change immediately, we can attempt reconnection logic
+            attemptReconnection()
         }, delayMs)
     }
-    
+
+    private fun tryReconnect(): Boolean {
+        // TODO: Implement actual USB connection logic here
+        Log.d(TAG, "Trying to reconnect to the USB device...")
+
+        return false // Change to true when reconnection is successful
+    }
+
+    private fun attemptReconnection() {
+        // Logic to check if reconnection is possible
+        Log.d(TAG, "Attempting reconnection...")
+
+        val success = tryReconnect()  // Replace with actual reconnection logic
+
+        if (success) {
+            setState(ConnectionState.CONNECTED)
+        } else if (retryCount.get() < maxRetries) {
+            scheduleRetry()
+        } else {
+            Log.w(TAG, "Final retry failed, remaining in ERROR state.")
+        }
+    }
+
+    fun cancelRetries() {
+        Log.d(TAG, "Cancelling all retry attempts.")
+        retryCount.set(0)
+    }
     /**
      * Log error to file
      */
