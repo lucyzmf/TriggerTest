@@ -105,6 +105,22 @@ class TriggerGenerator(private val triggerListener: TriggerListener) {
     }
     
     /**
+     * Set the current trigger value.
+     */
+    fun setCurrentValue(value: Int) {
+        if (value in 1..256) {
+            triggerCounter.set(if (value == 256) 0 else value)
+        }
+    }
+    
+    /**
+     * Check if the generator is currently running.
+     */
+    fun isRunning(): Boolean {
+        return isRunning
+    }
+    
+    /**
      * Reset the trigger counter to 0.
      */
     fun reset() {

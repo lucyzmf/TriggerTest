@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
@@ -136,9 +137,20 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
         0x2E8A  // Raspberry Pi Pico
     )
     
+    // Keys for saving instance state
+    private companion object {
+        const val KEY_TRIGGER_VALUE = "trigger_value"
+        const val KEY_CONNECTION_STATE = "connection_state"
+        const val KEY_TRIGGER_RUNNING = "trigger_running"
+        const val KEY_LAST_TRIGGER_TIME = "last_trigger_time"
+        const val TAG = "MainActivity"
+    }
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        
+        Log.d(TAG, "onCreate called")
         
         // Initialize UI elements
         connectionStatusTextView = findViewById(R.id.connection_status)
@@ -211,6 +223,57 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                 findViewById<Button>(R.id.send_trigger_button).text = "Start Triggers"
             }
         }
+        
+        // Restore state if available
+        savedInstanceState?.let { restoreState(it) }
+    }
+    
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        
+        // Save current trigger value
+        outState.putInt(KEY_TRIGGER_VALUE, triggerGenerator.getCurrentTriggerValue())
+        
+        // Save connection state
+        outState.putString(KEY_CONNECTION_STATE, errorManager.getState().name)
+        
+        // Save if trigger generator is running
+        outState.putBoolean(KEY_TRIGGER_RUNNING, triggerGenerator.isRunning())
+        
+        // Save last trigger time
+        outState.putLong(KEY_LAST_TRIGGER_TIME, lastTriggerTime)
+        
+        Log.d(TAG, "Saved state: trigger=${triggerGenerator.getCurrentTriggerValue()}, " +
+                "running=${triggerGenerator.isRunning()}")
+    }
+    
+    private fun restoreState(savedInstanceState: Bundle) {
+        // Restore trigger value
+        val savedTriggerValue = savedInstanceState.getInt(KEY_TRIGGER_VALUE, 0)
+        if (savedTriggerValue > 0) {
+            updateTriggerNumber(savedTriggerValue)
+            triggerGenerator.setCurrentValue(savedTriggerValue)
+        }
+        
+        // Restore last trigger time
+        lastTriggerTime = savedInstanceState.getLong(KEY_LAST_TRIGGER_TIME, 0)
+        if (lastTriggerTime > 0) {
+            lastTriggerWallTime = lastTriggerTime
+            lastTriggerAppTime = SystemClock.elapsedRealtime() - 
+                (System.currentTimeMillis() - lastTriggerTime)
+        }
+        
+        // Restore trigger generator running state
+        val wasRunning = savedInstanceState.getBoolean(KEY_TRIGGER_RUNNING, false)
+        if (wasRunning) {
+            // Only restart if we have a connection
+            if (errorManager.getState() == ConnectionErrorManager.ConnectionState.CONNECTED) {
+                triggerGenerator.start()
+                findViewById<Button>(R.id.send_trigger_button).text = "Stop Triggers"
+            }
+        }
+        
+        Log.d(TAG, "Restored state: trigger=$savedTriggerValue, wasRunning=$wasRunning")
     }
     
     override fun onDestroy() {
@@ -230,6 +293,12 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
     // Method for serial port detection
     private fun detectSerialPorts() {
         updateConnectionStatus("Searching for devices...")
+        
+        // Update connection state
+        errorManager.setState(
+            ConnectionErrorManager.ConnectionState.DISCONNECTED,
+            ConnectionErrorManager.ErrorCode.NONE
+        )
         
         // Get the list of connected USB devices
         val deviceList = usbManager.deviceList
@@ -373,8 +442,14 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             // Convert trigger number to a byte
             val triggerByte = byteArrayOf(triggerNumber.toByte())
             
+            // Purge buffer before writing
+            purgeSerialBuffers()
+            
             // Write the byte to the serial port
             usbSerialPort?.write(triggerByte, 1000)
+            
+            // Purge buffer after writing
+            purgeSerialBuffers()
             
             // Update UI
             updateTriggerNumber(triggerNumber)
@@ -382,13 +457,28 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             
             // Force immediate time display update
             updateTimeDisplays()
+            
+            // Log successful trigger for timing verification
+            Log.d("TRIGGER_TIMING", "Trigger $triggerNumber sent at ${formatTimestamp(lastTriggerTime)}")
         } catch (e: IOException) {
+            Log.e("TRIGGER_ERROR", "Failed to send trigger: ${e.message}")
             errorManager.setState(
                 ConnectionErrorManager.ConnectionState.ERROR,
                 ConnectionErrorManager.ErrorCode.WRITE_FAILED
             )
             triggerGenerator.stop()
             updateSendTriggerButtonState(false)
+        }
+    }
+    
+    /**
+     * Purge serial port buffers to ensure clean communication
+     */
+    private fun purgeSerialBuffers() {
+        try {
+            usbSerialPort?.purgeHwBuffers(true, true)
+        } catch (e: Exception) {
+            Log.w("SERIAL_PURGE", "Failed to purge buffers: ${e.message}")
         }
     }
     
@@ -479,8 +569,18 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             val appTimeDelta = currentAppTime - lastTriggerAppTime
             val drift = wallTimeDelta - appTimeDelta
             
+            // Highlight time displays if we're close to a trigger event (within 500ms)
+            val timeSinceLastTrigger = currentWallTime - lastTriggerTime
+            if (timeSinceLastTrigger < 500) {
+                wallTimeTextView.setTextColor(Color.BLUE)
+                appTimeTextView.setTextColor(Color.BLUE)
+            } else {
+                wallTimeTextView.setTextColor(Color.BLACK)
+                appTimeTextView.setTextColor(Color.BLACK)
+            }
+            
             if (Math.abs(drift) > 10) { // Only log significant drift (>10ms)
-                android.util.Log.d("TIME_DRIFT", 
+                Log.d("TIME_DRIFT", 
                     "Drift detected: ${drift}ms (Wall: ${wallTimeDelta}ms, App: ${appTimeDelta}ms)")
             }
         }

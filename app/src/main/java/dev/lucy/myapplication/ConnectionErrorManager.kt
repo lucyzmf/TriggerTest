@@ -94,6 +94,13 @@ class ConnectionErrorManager(private val context: Context) {
             // Reset retry count when not in error state
             retryCount.set(0)
         }
+        
+        // If we're transitioning from ERROR to CONNECTED, log recovery
+        if (oldState == ConnectionState.ERROR && state == ConnectionState.CONNECTED) {
+            val recoveryMessage = "$timestamp: Recovered from error: $currentError"
+            Log.d(TAG, recoveryMessage)
+            logErrorToFile(recoveryMessage)
+        }
     }
     
     /**
