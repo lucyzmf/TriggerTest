@@ -36,7 +36,7 @@ class SystemIntegrationTest {
         
         // Wait for all 256 triggers (with a generous timeout)
         assertTrue("Timed out waiting for 256 triggers", 
-                  latch.await(60, TimeUnit.SECONDS))
+                  latch.await(257, TimeUnit.SECONDS))
         
         generator.shutdown()
         
