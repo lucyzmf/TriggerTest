@@ -59,6 +59,3 @@ This application is built using:
 - Kotlin
 - Android USB Host API
 - USB Serial for Android library (https://github.com/mik3y/usb-serial-for-android)
-
-## License
-[MIT License](LICENSE)
