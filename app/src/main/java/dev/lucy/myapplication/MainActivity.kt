@@ -84,10 +84,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             when (intent.action) {
                 ACTION_USB_PERMISSION -> {
                     synchronized(this) {
-                        val device: UsbDevice? = intent.getParcelableExtra(
-                            UsbManager.EXTRA_DEVICE,
-                            UsbDevice::class.java
-                        )
+                        val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                         if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
                             device?.let {
                                 // Permission granted, proceed with connection
@@ -103,10 +100,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                     }
                 }
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
-                    val device: UsbDevice? = intent.getParcelableExtra(
-                        UsbManager.EXTRA_DEVICE,
-                        UsbDevice::class.java
-                    )
+                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                     device?.let {
                         updateConnectionStatus("USB Device attached: ${it.deviceName}")
                         usbDevice = it
@@ -114,10 +108,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                     }
                 }
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> {
-                    val device: UsbDevice? = intent.getParcelableExtra(
-                        UsbManager.EXTRA_DEVICE,
-                        UsbDevice::class.java
-                    )
+                    val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                     device?.let {
                         if (it == usbDevice) {
                             updateConnectionStatus("USB Device detached: ${it.deviceName}")
@@ -186,7 +177,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
         // Check if the activity was started by a USB device being attached
         val intent = intent
         if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
-            val attachedDevice = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+            val attachedDevice = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
             attachedDevice?.let {
                 updateConnectionStatus("USB Device attached: ${it.deviceName}")
                 usbDevice = it
@@ -442,6 +433,11 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                 updateSendTriggerButtonState(false)
             }
         }
+    }
+    
+    // Extension function to set background color on a View
+    private fun View.setBackgroundColor(color: Int) {
+        setBackgroundColor(color)
     }
     
     // Update send trigger button state
