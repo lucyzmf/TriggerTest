@@ -32,17 +32,23 @@ class TriggerGenerator(private val triggerListener: TriggerListener) {
      * Start generating triggers at 1-second intervals.
      */
     fun start() {
-        if (isRunning) return
-        
-        isRunning = true
-        scheduledFuture = scheduler.scheduleAtFixedRate(
+        if (isRunning) {
+            println("TriggerGenerator: Already running, ignoring start() call.")
+            return
+        }
+
+        println("TriggerGenerator: Starting trigger generator...")
+
+        scheduledFuture = scheduler.scheduleWithFixedDelay(
             { generateTrigger() },
             0,
             1000,
             TimeUnit.MILLISECONDS
         )
+        isRunning = true
+
     }
-    
+
     /**
      * Stop generating triggers.
      */
@@ -68,16 +74,21 @@ class TriggerGenerator(private val triggerListener: TriggerListener) {
         try {
             // Record the exact time this trigger was generated
             val triggerTime = System.currentTimeMillis()
-            
-            // Get next value (1-256) and handle wrap-around
-            val nextValue = (triggerCounter.incrementAndGet() % 256)
-            val triggerValue = if (nextValue == 0) 256 else nextValue
-            
+
+            // Atomically update the counter and wrap properly
+            if (triggerCounter.compareAndSet(256, 0)) {
+                triggerCounter.set(1)
+            } else {
+                triggerCounter.incrementAndGet()
+            }
+
+            val triggerValue = triggerCounter.get()
+
             // Notify listener of the new trigger value
             triggerListener.onTriggerGenerated(triggerValue)
-            
+
             // Log the trigger time for debugging
-            android.util.Log.d("TRIGGER_TIME", "Trigger $triggerValue generated at $triggerTime")
+            println("TriggerGenerator: Trigger $triggerValue generated at $triggerTime")
         } catch (e: Exception) {
             // Handle any errors
             triggerListener.onTriggerError("Error generating trigger: ${e.message}")
