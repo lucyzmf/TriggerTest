@@ -28,7 +28,7 @@ import java.util.Date
 import java.util.Locale
 
 class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
-    
+
     // UI elements
     private lateinit var connectionStatusTextView: TextView
     private lateinit var serialPortNameTextView: TextView
@@ -37,30 +37,30 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
     private lateinit var appTimeTextView: TextView
     private lateinit var sendTriggerButton: Button
     private lateinit var statusIndicator: View
-    
+
     // USB related variables
     private lateinit var usbManager: UsbManager
     private var usbDevice: UsbDevice? = null
     private var usbConnection: UsbDeviceConnection? = null
     private var usbSerialPort: UsbSerialPort? = null
     private val ACTION_USB_PERMISSION = "dev.lucy.myapplication.USB_PERMISSION"
-    
+
     // Error handling
     private lateinit var errorManager: ConnectionErrorManager
-    
+
     // Handlers for updating time and device detection
     private val handler = Handler(Looper.getMainLooper())
     private val deviceDetectionHandler = Handler(Looper.getMainLooper())
-    
+
     // Trigger generator
     private lateinit var triggerGenerator: TriggerGenerator
-    
+
     // Time tracking variables
     private val appStartTime = SystemClock.elapsedRealtime()
     private var lastTriggerTime = 0L
     private var lastTriggerWallTime = 0L
     private var lastTriggerAppTime = 0L
-    
+
     // Time update runnable with faster refresh rate
     private val timeUpdateRunnable = object : Runnable {
         override fun run() {
@@ -68,7 +68,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             handler.postDelayed(this, 100) // Update every 100ms for smoother display
         }
     }
-    
+
     // Runnable for periodic device detection
     private val deviceDetectionRunnable = object : Runnable {
         override fun run() {
@@ -78,7 +78,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             deviceDetectionHandler.postDelayed(this, 5000) // Retry every 5 seconds
         }
     }
-    
+
     // USB broadcast receiver for permission, attachment, and detachment
     private val usbPermissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -100,6 +100,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                         }
                     }
                 }
+
                 UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
                     val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                     device?.let {
@@ -108,6 +109,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                         requestUsbPermission(it)
                     }
                 }
+
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> {
                     val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
                     device?.let {
@@ -121,7 +123,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             }
         }
     }
-    
+
     // List of supported USB vendor IDs
     private val SUPPORTED_VENDORS = setOf(
         0x0403, // FTDI
@@ -136,7 +138,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
         0x0483, // STMicroelectronics
         0x2E8A  // Raspberry Pi Pico
     )
-    
+
     // Keys for saving instance state
     private companion object {
         const val KEY_TRIGGER_VALUE = "trigger_value"
@@ -145,13 +147,13 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
         const val KEY_LAST_TRIGGER_TIME = "last_trigger_time"
         const val TAG = "MainActivity"
     }
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        
+
         Log.d(TAG, "onCreate called")
-        
+
         // Initialize UI elements
         connectionStatusTextView = findViewById(R.id.connection_status)
         serialPortNameTextView = findViewById(R.id.serial_port_name)
@@ -160,32 +162,37 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
         appTimeTextView = findViewById(R.id.app_time)
         sendTriggerButton = findViewById(R.id.send_trigger_button)
         statusIndicator = findViewById(R.id.status_indicator)
-        
+
         // Initialize trigger generator
         triggerGenerator = TriggerGenerator(this)
-        
+
         // Initialize error manager
         errorManager = ConnectionErrorManager(this)
         errorManager.setStateChangeListener { state, errorCode ->
             runOnUiThread {
                 updateConnectionUI(state, errorCode)
-                
+
                 // Handle reconnection attempts
                 if (state == ConnectionErrorManager.ConnectionState.DISCONNECTED) {
                     detectSerialPorts()
                 }
             }
         }
-        
+
         // Initialize USB manager
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
-        
+
         // Register USB permission receiver
         val filter = IntentFilter(ACTION_USB_PERMISSION)
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
-        ContextCompat.registerReceiver(this, usbPermissionReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
-        
+        ContextCompat.registerReceiver(
+            this,
+            usbPermissionReceiver,
+            filter,
+            ContextCompat.RECEIVER_EXPORTED
+        )
+
         // Check if the activity was started by a USB device being attached
         val intent = intent
         if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
@@ -196,21 +203,21 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                 requestUsbPermission(it)
             }
         }
-        
+
         // Start time updates
         handler.post(timeUpdateRunnable)
-        
+
         // Initial UI setup
         updateConnectionStatus("Disconnected")
         updateSerialPortName("None")
         updateTriggerNumber(0)
-        
+
         // Start USB device detection
         detectSerialPorts()
-        
+
         // Start periodic device detection
         deviceDetectionHandler.post(deviceDetectionRunnable)
-        
+
         // Set up the send trigger button
         findViewById<Button>(R.id.send_trigger_button).setOnClickListener {
             if (triggerGenerator.getCurrentTriggerValue() == 0) {
@@ -223,30 +230,32 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                 findViewById<Button>(R.id.send_trigger_button).text = "Start Triggers"
             }
         }
-        
+
         // Restore state if available
         savedInstanceState?.let { restoreState(it) }
     }
-    
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        
+
         // Save current trigger value
         outState.putInt(KEY_TRIGGER_VALUE, triggerGenerator.getCurrentTriggerValue())
-        
+
         // Save connection state
         outState.putString(KEY_CONNECTION_STATE, errorManager.getState().name)
-        
+
         // Save if trigger generator is running
         outState.putBoolean(KEY_TRIGGER_RUNNING, triggerGenerator.isRunning())
-        
+
         // Save last trigger time
         outState.putLong(KEY_LAST_TRIGGER_TIME, lastTriggerTime)
-        
-        Log.d(TAG, "Saved state: trigger=${triggerGenerator.getCurrentTriggerValue()}, " +
-                "running=${triggerGenerator.isRunning()}")
+
+        Log.d(
+            TAG, "Saved state: trigger=${triggerGenerator.getCurrentTriggerValue()}, " +
+                    "running=${triggerGenerator.isRunning()}"
+        )
     }
-    
+
     private fun restoreState(savedInstanceState: Bundle) {
         // Restore trigger value
         val savedTriggerValue = savedInstanceState.getInt(KEY_TRIGGER_VALUE, 0)
@@ -254,15 +263,15 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             updateTriggerNumber(savedTriggerValue)
             triggerGenerator.setCurrentValue(savedTriggerValue)
         }
-        
+
         // Restore last trigger time
         lastTriggerTime = savedInstanceState.getLong(KEY_LAST_TRIGGER_TIME, 0)
         if (lastTriggerTime > 0) {
             lastTriggerWallTime = lastTriggerTime
-            lastTriggerAppTime = SystemClock.elapsedRealtime() - 
-                (System.currentTimeMillis() - lastTriggerTime)
+            lastTriggerAppTime = SystemClock.elapsedRealtime() -
+                    (System.currentTimeMillis() - lastTriggerTime)
         }
-        
+
         // Restore trigger generator running state
         val wasRunning = savedInstanceState.getBoolean(KEY_TRIGGER_RUNNING, false)
         if (wasRunning) {
@@ -272,37 +281,30 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                 findViewById<Button>(R.id.send_trigger_button).text = "Stop Triggers"
             }
         }
-        
+
         Log.d(TAG, "Restored state: trigger=$savedTriggerValue, wasRunning=$wasRunning")
     }
-    
+
     override fun onDestroy() {
         super.onDestroy()
         // Unregister receiver and stop handlers
         unregisterReceiver(usbPermissionReceiver)
         handler.removeCallbacks(timeUpdateRunnable)
         deviceDetectionHandler.removeCallbacks(deviceDetectionRunnable)
-        
+
         // Clean up trigger generator
         triggerGenerator.shutdown()
-        
+
         // Close USB connection
         closeSerialPort()
     }
-    
-    // Method for serial port detection
+
     private fun detectSerialPorts() {
         updateConnectionStatus("Searching for devices...")
-        
-        // Update connection state
-        errorManager.setState(
-            ConnectionErrorManager.ConnectionState.DISCONNECTED,
-            ConnectionErrorManager.ErrorCode.NONE
-        )
-        
+
         // Get the list of connected USB devices
         val deviceList = usbManager.deviceList
-        
+
         if (deviceList.isEmpty()) {
             errorManager.setState(
                 ConnectionErrorManager.ConnectionState.DISCONNECTED,
@@ -310,12 +312,12 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             )
             return
         }
-        
+
         // Filter for supported USB serial devices
         val supportedDevices = deviceList.values.filter { device ->
             SUPPORTED_VENDORS.contains(device.vendorId)
         }
-        
+
         if (supportedDevices.isEmpty()) {
             errorManager.setState(
                 ConnectionErrorManager.ConnectionState.DISCONNECTED,
@@ -323,34 +325,36 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             )
             return
         }
-        
+
         // Log all found devices for testing purposes
         for (device in supportedDevices) {
-            android.util.Log.d("USB_DETECTION", 
+            android.util.Log.d(
+                "USB_DETECTION",
                 "Found device: ${device.deviceName}, " +
-                "VendorID: ${device.vendorId}, " +
-                "ProductID: ${device.productId}")
+                        "VendorID: ${device.vendorId}, " +
+                        "ProductID: ${device.productId}"
+            )
         }
-        
+
         // Select the first available supported device
         val selectedDevice = supportedDevices.first()
         usbDevice = selectedDevice
-        
+
         val deviceInfo = "Found device: ${selectedDevice.deviceName} " +
-                         "(VID: ${selectedDevice.vendorId.toString(16)}, " +
-                         "PID: ${selectedDevice.productId.toString(16)})"
-        
+                "(VID: ${selectedDevice.vendorId.toString(16)}, " +
+                "PID: ${selectedDevice.productId.toString(16)})"
+
         updateConnectionStatus(deviceInfo)
         updateSerialPortName(selectedDevice.deviceName)
-        
+
         // Request permission for the device
         requestUsbPermission(selectedDevice)
     }
-    
+
     // Method for connection management
     private fun connectToSerialPort(device: UsbDevice) {
         updateConnectionStatus("Connecting to ${device.deviceName}...")
-        
+
         try {
             // Find all available drivers for the attached device
             val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
@@ -361,7 +365,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                 )
                 return
             }
-            
+
             // Open a connection to the first available driver
             val driver = availableDrivers[0]
             val connection = usbManager.openDevice(device)
@@ -372,22 +376,22 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                 )
                 return
             }
-            
+
             // Get the first port (most devices have just one)
             val port = driver.ports[0]
-            
+
             // Open the port and configure it
             try {
                 port.open(connection)
                 port.setParameters(9600, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
-                
+
                 // Store the connection and port for later use
                 usbConnection = connection
                 usbSerialPort = port
-                
+
                 // Update state to connected
                 errorManager.setState(ConnectionErrorManager.ConnectionState.CONNECTED)
-                
+
                 updateConnectionStatus("Connected to ${device.deviceName}")
                 updateSerialPortName("${driver.javaClass.simpleName} (${port.portNumber})")
             } catch (e: IOException) {
@@ -408,7 +412,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             )
         }
     }
-    
+
     // Close the serial port connection
     private fun closeSerialPort() {
         usbSerialPort?.let {
@@ -419,10 +423,10 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             }
             usbSerialPort = null
         }
-        
+
         usbConnection = null
     }
-    
+
     // Method for trigger sending
     private fun sendTrigger(triggerNumber: Int) {
         if (usbSerialPort == null) {
@@ -432,34 +436,43 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             )
             return
         }
-        
+
         try {
             // Record timestamps before sending trigger
             lastTriggerTime = System.currentTimeMillis()
             lastTriggerWallTime = lastTriggerTime
             lastTriggerAppTime = SystemClock.elapsedRealtime()
-            
+
             // Convert trigger number to a byte
             val triggerByte = byteArrayOf(triggerNumber.toByte())
-            
+
             // Purge buffer before writing
             purgeSerialBuffers()
-            
+
             // Write the byte to the serial port
             usbSerialPort?.write(triggerByte, 1000)
-            
+
             // Purge buffer after writing
             purgeSerialBuffers()
-            
+
             // Update UI
             updateTriggerNumber(triggerNumber)
-            updateConnectionStatus("Trigger ${triggerNumber} sent at ${formatTimestamp(lastTriggerTime)}")
-            
+            updateConnectionStatus(
+                "Trigger ${triggerNumber} sent at ${
+                    formatTimestamp(
+                        lastTriggerTime
+                    )
+                }"
+            )
+
             // Force immediate time display update
             updateTimeDisplays()
-            
+
             // Log successful trigger for timing verification
-            Log.d("TRIGGER_TIMING", "Trigger $triggerNumber sent at ${formatTimestamp(lastTriggerTime)}")
+            Log.d(
+                "TRIGGER_TIMING",
+                "Trigger $triggerNumber sent at ${formatTimestamp(lastTriggerTime)}"
+            )
         } catch (e: IOException) {
             Log.e("TRIGGER_ERROR", "Failed to send trigger: ${e.message}")
             errorManager.setState(
@@ -470,7 +483,7 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             updateSendTriggerButtonState(false)
         }
     }
-    
+
     /**
      * Purge serial port buffers to ensure clean communication
      */
@@ -481,12 +494,12 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             Log.w("SERIAL_PURGE", "Failed to purge buffers: ${e.message}")
         }
     }
-    
+
     // Helper method to format timestamps consistently
     private fun formatTimestamp(timeMillis: Long): String {
         return SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date(timeMillis))
     }
-    
+
     // Method to request USB permission
     private fun requestUsbPermission(device: UsbDevice) {
         val permissionIntent = PendingIntent.getBroadcast(
@@ -495,14 +508,17 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
         )
         usbManager.requestPermission(device, permissionIntent)
     }
-    
+
     // UI update methods
     private fun updateConnectionStatus(status: String) {
         connectionStatusTextView.text = "Status: $status"
     }
-    
+
     // Update UI based on connection state
-    private fun updateConnectionUI(state: ConnectionErrorManager.ConnectionState, errorCode: ConnectionErrorManager.ErrorCode) {
+    private fun updateConnectionUI(
+        state: ConnectionErrorManager.ConnectionState,
+        errorCode: ConnectionErrorManager.ErrorCode
+    ) {
         when (state) {
             ConnectionErrorManager.ConnectionState.CONNECTED -> {
                 connectionStatusTextView.setTextColor(Color.GREEN)
@@ -510,12 +526,14 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                 updateConnectionStatus("Connected")
                 updateSendTriggerButtonState(true)
             }
+
             ConnectionErrorManager.ConnectionState.DISCONNECTED -> {
                 connectionStatusTextView.setTextColor(Color.GRAY)
                 statusIndicator.setBackgroundColor(Color.GRAY)
                 updateConnectionStatus("Disconnected: ${errorCode.message}")
                 updateSendTriggerButtonState(false)
             }
+
             ConnectionErrorManager.ConnectionState.ERROR -> {
                 connectionStatusTextView.setTextColor(Color.RED)
                 statusIndicator.setBackgroundColor(Color.RED)
@@ -524,12 +542,12 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             }
         }
     }
-    
+
     // Extension function to set background color on a View
     private fun View.setBackgroundColor(color: Int) {
         setBackgroundColor(color)
     }
-    
+
     // Update send trigger button state
     private fun updateSendTriggerButtonState(enabled: Boolean) {
         sendTriggerButton.isEnabled = enabled
@@ -538,37 +556,37 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
             sendTriggerButton.text = "Start Triggers"
         }
     }
-    
+
     private fun updateSerialPortName(name: String) {
         serialPortNameTextView.text = "Port: $name"
     }
-    
+
     private fun updateTriggerNumber(number: Int) {
         triggerNumberTextView.text = "Trigger: $number"
     }
-    
+
     private fun updateTimeDisplays() {
         // Update wall time using System.currentTimeMillis()
         val wallTimeMillis = System.currentTimeMillis()
         val dateFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
         val formattedWallTime = dateFormat.format(Date(wallTimeMillis))
         wallTimeTextView.text = "Wall Time: $formattedWallTime"
-        
+
         // Update app time using SystemClock.elapsedRealtime()
         val appTimeMillis = SystemClock.elapsedRealtime() - appStartTime
         val seconds = appTimeMillis / 1000
         val millis = appTimeMillis % 1000
         appTimeTextView.text = String.format("App Time: %d.%03d s", seconds, millis)
-        
+
         // Calculate and log drift if we have trigger timestamps
         if (lastTriggerTime > 0) {
             val currentWallTime = System.currentTimeMillis()
             val currentAppTime = SystemClock.elapsedRealtime()
-            
+
             val wallTimeDelta = currentWallTime - lastTriggerWallTime
             val appTimeDelta = currentAppTime - lastTriggerAppTime
             val drift = wallTimeDelta - appTimeDelta
-            
+
             // Highlight time displays if we're close to a trigger event (within 500ms)
             val timeSinceLastTrigger = currentWallTime - lastTriggerTime
             if (timeSinceLastTrigger < 500) {
@@ -578,21 +596,23 @@ class MainActivity : AppCompatActivity(), TriggerGenerator.TriggerListener {
                 wallTimeTextView.setTextColor(Color.BLACK)
                 appTimeTextView.setTextColor(Color.BLACK)
             }
-            
+
             if (Math.abs(drift) > 10) { // Only log significant drift (>10ms)
-                Log.d("TIME_DRIFT", 
-                    "Drift detected: ${drift}ms (Wall: ${wallTimeDelta}ms, App: ${appTimeDelta}ms)")
+                Log.d(
+                    "TIME_DRIFT",
+                    "Drift detected: ${drift}ms (Wall: ${wallTimeDelta}ms, App: ${appTimeDelta}ms)"
+                )
             }
         }
     }
-    
+
     // TriggerGenerator.TriggerListener implementation
     override fun onTriggerGenerated(triggerValue: Int) {
         runOnUiThread {
             sendTrigger(triggerValue)
         }
     }
-    
+
     override fun onTriggerError(error: String) {
         runOnUiThread {
             updateConnectionStatus(error)
